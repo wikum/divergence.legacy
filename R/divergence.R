@@ -4,13 +4,13 @@
 ###
 
 ### ====================================================
-### percentiles
+### quantiles
 ### ====================================================
 
-percentileTransform = function(x, rank_samples=TRUE){
+quantileTransform = function(x){
   
-  if(rank_samples)
-    x = rank(x, ties.method="average")
+  #if(rank_samples)
+  #  x = rank(x, ties.method="average")
   
   # start with rank 0, i.e. all values with min(x) will have rank 0
   # the percentile transformation depends on the non-zero ranks
@@ -24,11 +24,11 @@ percentileTransform = function(x, rank_samples=TRUE){
 }
 
 
-### apply percentile transformation to a matrix
+### apply quantiles transformation to a matrix
 ###     rank_samples: TRUE if ranking should be applied before converting to percentiles
-getPercentileMat = function(Mat, rank_samples=TRUE){
+getQuantileMat = function(Mat){
   
-  newMat = apply(Mat, 2, function(x) percentileTransform(x, rank_samples))
+  newMat = apply(Mat, 2, function(x) quantileTransform(x))
   
   rownames(newMat) = rownames(Mat)
   colnames(newMat) = colnames(Mat)
@@ -40,7 +40,7 @@ getPercentileMat = function(Mat, rank_samples=TRUE){
 ### get expected proportion of divergent feature per sample
 ### ====================================================
 
-getDivExp = function(Mat, Ranges){
+getAlpha = function(Mat, Ranges){
   
   mean(colSums(abs(computeTernary(Mat=Mat, R=Ranges)))/nrow(Mat))
   
@@ -221,18 +221,19 @@ getRangesBySections = function(Mat, gamma=0.1, beta=0.95, method="partial", par=
 
 }
 
-computeRanges = function(Mat, gamma=0.1, beta=0.95, method="partial", par=TRUE, e=TRUE, verbose=TRUE){
+computeRanges = function(Mat, gamma=0.1, beta=0.95, method="partial", parallel=TRUE, verbose=TRUE){
   
+  stopifnot(is.matrix(Mat))
+
   if((! is.numeric(gamma)) || (gamma <= 0) || (gamma >= 1) ){
     warning("Invalid gamma value; using gamma=0.1\n")
     gamma = 0.1
   }
 
-  if((! is.numeric(bea)) || (beta <= 0) || (beta >= 1) ){
+  if((! is.numeric(beta)) || (beta <= 0) || (beta >= 1) ){
     warning("Invalid beta value; using beta=0.95\n")
     beta = 0.95
   }
-
 
 	if(method == "kdtree"){
 		if("nabor" %in% installed.packages())
@@ -250,8 +251,7 @@ computeRanges = function(Mat, gamma=0.1, beta=0.95, method="partial", par=TRUE, 
   }
 
   # apply to each feature in the baseline data matrix
-  L = getRangeList(Mat=Mat, gamma=gamma, beta=beta, method=method, par=par,
-  	lower=lower, upper=lower) # nmax=200, mmax=1000
+  L = getRangeList(Mat=Mat, gamma=gamma, beta=beta, method=method, par=parallel, verbose=verbose)
   
   R = data.frame(t(sapply(L, function(x) x$range)))
   colnames(R) = c("baseline.low", "baseline.high")
@@ -259,17 +259,14 @@ computeRanges = function(Mat, gamma=0.1, beta=0.95, method="partial", par=TRUE, 
   S = t(sapply(L, function(x) 1*(1:ncol(Mat) %in% x$support) ))
   colnames(S) = colnames(Mat)
   
-  if(e){
-    ex=getDivExp(Mat=Mat, Ranges=R)
-    if(verbose)
-      cat(sprintf("[Expected proportion of divergent features per sample=%.3f]\n", ex))
-  }else{
-    ex=NULL
-  }
+  alpha=getAlpha(Mat=Mat, Ranges=R)
+  if(verbose)
+    cat(sprintf("[Expected proportion of divergent features per sample=%.3f]\n", alpha))
   
   list(Ranges=R, 
        Support=S,
-       Expectation=ex)
+       gamma=gamma,
+       alpha=alpha)
   
 }
 
@@ -282,9 +279,11 @@ findGamma = function(Mat,
   beta=0.95, 
   alpha=0.01,
   method="partial", 
-  par=TRUE,
+  parallel=TRUE,
   verbose=TRUE){
  
+  stopifnot(is.matrix(Mat))
+
  if(verbose)
     cat(sprintf("Searching optimal gamma for alpha=%.5f\n", alpha))
    
@@ -299,10 +298,10 @@ findGamma = function(Mat,
     
   RangesList = list()
   for(i in 1:length(gamma)){
-    L = computeRanges(Mat=Mat, gamma=gamma[i], beta=beta, method=method, par=par, e=TRUE)
+    L = computeRanges(Mat=Mat, gamma=gamma[i], beta=beta, method=method, parallel=parallel, verbose=verbose)
     
     RangesList[[i]] = L
-    e[i] = L$Expectation
+    e[i] = L$alpha
     
     g = c(g, gamma[i])
     if(e[i] <= alpha)
@@ -333,12 +332,11 @@ findGamma = function(Mat,
   
   list(Ranges=R_star$Ranges, 
        Support=R_star$Support,
-       Expectation=e_star,
-       gamma=g,
-       e=e,
-       optimal_gamma=optimal_gamma,
+       gamma=optimal_gamma,
+       alpha=e_star,
        optimal=optimal,
-       gamma_all=gamma)
+       alpha_space=data.frame(gamma=gamma, alpha=e)
+       )
   
 }
 
@@ -365,17 +363,32 @@ computeTernary = function(Mat, R){
 ### compute divergences
 ### ====================================================
 
-computeDivergences = function(Mat, refMat, 
-                              classes=NULL, 
+computeTernaryDigitization = function(Mat, baseMat, 
+                              computeQuantiles=TRUE,
                               gamma=c(1:9/100, 1:9/10),
                               beta=0.95, 
-                              method="partial",
-                              par=TRUE,
                               alpha=0.01,
-                              findGamma=TRUE,
-                              verbose=TRUE
-                              ){
-  
+                              method="partial",
+                              parallel=TRUE,
+                              verbose=TRUE,
+                              findGamma=TRUE, 
+                              Groups=NULL,                             
+                              classes=NULL){
+
+  stopifnot(rownames(Mat) == rownames(baseMat))
+
+  if(! is.null(Groups)){
+
+    stopifnot(length(Groups) == ncol(Mat))
+
+    if(! is.factor(Groups))
+      Groups = factor(Groups)
+
+    if(is.null(classes))
+       classes = levels(Groups)
+ 
+  }
+
   if(! is.numeric(alpha)){
     warning("Invalid alpha value\n")
     findGamma = FALSE
@@ -384,17 +397,26 @@ computeDivergences = function(Mat, refMat,
     findGamma = FALSE
   }
 
+  if(computeQuantiles){
+    if(verbose)
+      cat(sprintf("Computing quantiles..\n"))
+    baseMat = getQuantileMat(baseMat)
+    Mat = getQuantileMat(Mat)
+  }
+
   if(findGamma){
-    L = findGamma(Mat=refMat, gamma=gamma, beta=beta, alpha=alpha, method=method, par=par, verbose=verbose)
+    L = findGamma(Mat=baseMat, gamma=gamma, beta=beta, alpha=alpha, method=method, parallel=parallel, verbose=verbose)
   }
   else{
     if(verbose)
       cat(sprintf("Using gamma=.4f\n", gamma[1]))
-    L = findGamma(Mat=refMat, gamma=gamma[1], beta=beta, alpha=alpha, method=method, par=par, verbose=FALSE)
+    L = findGamma(Mat=baseMat, gamma=gamma[1], beta=beta, alpha=alpha, method=method, parallel=parallel, verbose=FALSE)
   }
 
   DMat_ternary = computeTernary(Mat=Mat, R=L$Ranges)
   
+  baseMat_ternary = computeTernary(Mat=baseMat, R=L$Ranges)
+
   DMat = abs(DMat_ternary)
   
   D = rowMeans(DMat)
@@ -403,18 +425,27 @@ computeDivergences = function(Mat, refMat,
   Npos = colSums(DMat_ternary > 0)
   Nneg = colSums(DMat_ternary < 0)
   
-  list(DMat=DMat, 
-       DMat_ternary=DMat_ternary, 
-       D=D, N=N,
-       Npos=Npos,
-       Nneg=Nneg,
-       Ranges=L$Ranges,
-       Support=L$Support,
-       Expectation=L$Expectation,
-       gamma=L$gamma,
-       e=L$e,
-       optimal_gamma=L$optimal_gamma,
-       optimal=L$optimal)
+  df = data.frame(feature=rownames(Mat), prob.div=D)
+
+  if(! is.null(Groups)){
+
+    classDiv = sapply(classes, function(x) rowMeans(DMat[, which(Groups == x)]))
+
+    df = data.frame(df, classDiv)
+    colnames(df) = c("feature", "prob.div", paste("prob.div.", classes, sep=""))
+
+  }
+
+  list(Mat.div=DMat_ternary,
+      baseMat.div = baseMat_ternary,
+      div = data.frame(sample=colnames(Mat), count.div=N, count.div.upper=Npos, count.div.lower=Nneg),
+      features.div = df,
+      Ranges = L$Ranges,
+      Support = L$Support,
+      gamma = L$gamma,
+      alpha = L$alpha,
+      optimal = L$optimal,
+      alpha_space = L$alpha_space)
     
 }
 
