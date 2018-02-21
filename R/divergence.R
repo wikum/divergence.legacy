@@ -102,6 +102,12 @@ getRangeList = function(Mat, gamma=0.1, beta=0.95, method="partial", par=TRUE,
 
 	L = NULL
 
+  # nmax = cols
+  # mmax = rows
+
+  # for testing:
+  # nmax = 50
+
 	if(par){
 
 		require(parallel)
@@ -163,12 +169,24 @@ getRangesBySections = function(Mat, gamma=0.1, beta=0.95, method="partial", par=
                          nmax=200, mmax=1000, verbose=TRUE){
 
   dirnum = paste(sapply(1:5, function(i) sample(0:9, 1)), collapse="")
-  
   dirname = sprintf("ranges_%s", dirnum)
+
+  if(dir.exists(dirname)){
+    dirnum = paste(sapply(1:5, function(i) sample(0:9, 1)), collapse="")
+    dirname = sprintf("ranges_%s", dirnum)
+  }
+
   if(verbose)
     cat(sprintf("Creating directory %s for saving files\n", dirname))
-  dir.create(dirname)
-  
+
+  if(dir.exists(dirname)){
+    cat(sprintf("Directory %s already exits. Contents will be overwritten.\n", dirname))
+    tryCatch({
+      system(sprintf("rm %s/*.rda", dirname))
+    }, error = function(e){print(e)})
+  }else{
+    dir.create(dirname)
+  }
 
   # apply to each feature in the baseline data matrix
 
@@ -202,13 +220,13 @@ getRangesBySections = function(Mat, gamma=0.1, beta=0.95, method="partial", par=
   }
   
   # assemble
-  if(verbose)
+  if(verbose) 
     cat("Assembling..\n")
 
   L = list()
   for(j in 1:length(slots)){
     
-    ll = load(sprintf("%s/%d.rda", filename, j))
+    ll = load(sprintf("%s/%d.rda", dirname, j))
     
     L[[j]] = partialRanges
     
@@ -217,8 +235,15 @@ getRangesBySections = function(Mat, gamma=0.1, beta=0.95, method="partial", par=
     
   }
 
-  L
+  rL = Reduce(c, L)
+  if(! all(names(rL) == rownames(Mat))){
+      warning("Warning: rownames after assembly not in correct order; will try to re-order them..\n")
+      tryCatch({
+        rL = rL[rownames(Mat)]
+      }, error = function(e){print(e)})
+  }
 
+  rL
 }
 
 computeRanges = function(Mat, gamma=0.1, beta=0.95, method="partial", parallel=TRUE, verbose=TRUE){
