@@ -202,4 +202,63 @@ computeChiSquaredTest <- function(Mat, Groups, classes){
 }
 
 
+# ==================================================================================================
+#' Compute the support for a list of feature sets
+#' @export
+
+computeMultivariateSupport <- function(Mat, genesets, gamma=1:9/10, beta=0.95, method="euclidean"){
+
+	if(is.list(genesets))
+		genematrix = geneset_list_to_matrix(genesets)
+	else
+		genematrix = genesets
+
+	computeMultiGenesetSupport(Mat, genematrix, gamma, beta, method)
+}
+
+# ==================================================================================================
+#' Find optimal gamma and corresponding support for list of feature sets
+#' @export
+
+findMultivariateGammaAndSupport <-function(Mat, genesets, gamma=1:9/10, beta=0.95, alpha=0.01, method="euclidean"){
+
+	if(is.list(genesets))
+		genematrix = geneset_list_to_matrix(genesets)
+	else
+		genematrix = genesets
+
+	findMultiSetGammaAndSupport(Mat, genematrix, gamma, beta, alpha, method)
+}
+
+# ==================================================================================================
+#' Compute binary matrix given feature set support
+#' @export
+
+computeMultivariateBinaryMatrix <- function(Mat, genesets, Centermatrix_list, Radius_list, method="euclidean"){
+
+	if(is.list(genesets))
+		genematrix = geneset_list_to_matrix(genesets)
+	else
+		genematrix = genesets
+
+	computeMultiSetBinaryMatrix(Mat, genematrix, Centermatrix_list, Radius_list, method)
+}
+
+# ==================================================================================================
+#' Compute binary digitization for feature sets
+#' @export
+
+computeMultivariateDigitization <- function(Mat, basemat, genesets, gamma=1:9/10, beta=0.95, alpha=0.01, method="euclidean", findGamma =TRUE){
+
+	if(is.list(genesets))
+		genematrix = geneset_list_to_matrix(genesets)
+	else
+		genematrix = genesets
+
+	computeMultiSetDigitization(Mat, basemat, genematrix,gamma,beta, alpha, method="euclidean", findGamma =TRUE)
+}
+
+
+
+
 
